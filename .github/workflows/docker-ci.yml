@@ -33,7 +33,6 @@ jobs:
         with:
           platforms: linux/amd64
           push: true
-          file: docker/server.Dockerfile
           tags: |
             ghcr.io/${{ github.repository_owner }}/whoami:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/whoami:latest
