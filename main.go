@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"strings"
+
+	tea "github.com/structx/teapot"
 )
 
 const (
@@ -20,10 +23,7 @@ var (
 	host     string
 	logLevel string
 
-	buildDate string
-	commitSHA string
-
-	log *slog.Logger
+	log *tea.Logger
 )
 
 func init() {
@@ -32,12 +32,64 @@ func init() {
 	flag.StringVar(&logLevel, "log_level", getEnv("LOG_LEVEL", defaultLogLevel), "log level")
 }
 
+func getHostname() string {
+	h, _ := os.Hostname()
+	return h
+}
+
 func whoamiHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log.InfoContext(ctx, "received request",
-		slog.String("method", r.Method),
-		slog.String("request_uri", r.RequestURI),
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip = strings.Split(xff, ",")[0]
+	}
+
+	u, err := user.Current()
+	if err != nil {
+		log.Error("current user", tea.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	type resp struct {
+		Hostname   string      `json:"hostname"`
+		UID        string      `json:"uid"`
+		GID        string      `json:"gid"`
+		IP         string      `json:"ip"`
+		RemoteAddr string      `json:"remote_addr"`
+		Protocol   string      `json:"protocol"`
+		Method     string      `json:"method"`
+		URL        string      `json:"url"`
+		Header     http.Header `json:"header"`
+	}
+
+	rr := &resp{
+		Hostname:   getHostname(),
+		UID:        u.Uid,
+		GID:        u.Gid,
+		IP:         ip,
+		RemoteAddr: r.RemoteAddr,
+		Protocol:   r.Proto,
+		Method:     r.Method,
+		URL:        r.RequestURI,
+		Header:     r.Header,
+	}
+
+	log.Infof("received request",
+		tea.String("hostname", rr.Hostname),
+		tea.String("uid", rr.UID),
+		tea.String("gid", rr.GID),
+		tea.String("ip", rr.IP),
+		tea.String("remote_addr", rr.RemoteAddr),
+		tea.String("protocol", rr.Protocol),
+		tea.String("method", rr.Method),
+		tea.String("url", rr.URL),
+		tea.Any("header", rr.Header),
 	)
+
+	w.Header().Add("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(&rr); err != nil {
+		log.Error("encode json response", tea.Error(err))
+	}
 }
 
 func getEnv(key string, defaultValue string) string {
@@ -48,28 +100,34 @@ func getEnv(key string, defaultValue string) string {
 	return v
 }
 
-func main() {
-	var l slog.Level
+func newLogger() *tea.Logger {
+	var l tea.Level
 	switch strings.ToLower(logLevel) {
 	case "error":
-		l = slog.LevelError
+		l = tea.ERROR
 	case "info":
-		l = slog.LevelInfo
+		l = tea.INFO
 	default:
-		l = slog.LevelDebug
+		l = tea.DEBUG
 	}
 
-	log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: l}))
+	return tea.New(
+		tea.WithLevel(l),
+	)
+}
+
+func main() {
+	log = newLogger()
 
 	flag.Parse()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/whoami", whoamiHandler)
+	mux.HandleFunc("/", whoamiHandler)
 
 	hostAndPort := net.JoinHostPort(host, port)
 
-	log.Info("start http/1 server", slog.String("server_addr", hostAndPort))
+	log.Infof("start http/1 server", tea.String("server_addr", hostAndPort))
 	if err := http.ListenAndServe(hostAndPort, mux); err != nil && err != http.ErrServerClosed {
-		log.Error("failed to start http/1 server", slog.String("error", err.Error()))
+		log.Error("failed to start http/1 server", tea.Error(err))
 	}
 }
