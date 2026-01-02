@@ -16,5 +16,7 @@ FROM scratch AS final
 
 COPY --from=builder /usr/bin/whoami .
 
+USER 1000
+
 ENTRYPOINT [ "./whoami" ]
 CMD [ ]

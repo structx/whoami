@@ -92,6 +92,10 @@ func whoamiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 func getEnv(key string, defaultValue string) string {
 	v, ok := os.LookupEnv(key)
 	if !ok {
@@ -123,6 +127,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", whoamiHandler)
+	mux.HandleFunc("/health", healthHandler)
 
 	hostAndPort := net.JoinHostPort(host, port)
 
